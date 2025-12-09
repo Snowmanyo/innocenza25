@@ -752,6 +752,65 @@
     </style>
 </head>
 <body>
+    <!-- 密碼保護層 -->
+    <div id="loginScreen" style="
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 10000;
+    ">
+        <div style="
+            background: white;
+            padding: 40px;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            text-align: center;
+            max-width: 400px;
+            width: 90%;
+        ">
+            <h2 style="color: #2c3e50; margin-bottom: 10px; font-size: 24px;">🔒 代購團管理系統</h2>
+            <p style="color: #7f8c8d; margin-bottom: 30px; font-size: 14px;">請輸入密碼以繼續</p>
+            <input 
+                type="password" 
+                id="passwordInput" 
+                placeholder="請輸入密碼"
+                style="
+                    width: 100%;
+                    padding: 15px;
+                    border: 2px solid #ecf0f1;
+                    border-radius: 10px;
+                    font-size: 16px;
+                    margin-bottom: 20px;
+                    box-sizing: border-box;
+                "
+                onkeypress="if(event.key==='Enter') checkPassword()"
+            >
+            <button onclick="checkPassword()" style="
+                width: 100%;
+                padding: 15px;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                color: white;
+                border: none;
+                border-radius: 10px;
+                font-size: 16px;
+                font-weight: 600;
+                cursor: pointer;
+                transition: transform 0.3s;
+            " onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='translateY(0)'">
+                登入
+            </button>
+            <p id="errorMsg" style="color: #e74c3c; margin-top: 15px; font-size: 14px; display: none;">密碼錯誤，請重試</p>
+        </div>
+    </div>
+
+    <!-- 主要內容 -->
+    <div id="mainContent" style="display: none;">
     <div class="container">
         <div class="header">
             <h1>代購團管理系統</h1>
@@ -845,6 +904,9 @@
         </div>
     </div>
 
+    </div>
+    <!-- mainContent 結束 -->
+
     <script>
         // ===== Google Sheets 設定 =====
         // 請將下面的網址替換成你的 Apps Script 部署網址
@@ -916,8 +978,8 @@
         let editingOrderId = null;
 
         function init() {
-            loadOrders();
             populateProductSelect();
+            // loadOrders(); // 移到登入後才執行
             // 如果使用 Google Sheets，renderOrders 會在 loadOrders 完成後執行
             // 如果使用 localStorage，這裡直接執行
             if (APPS_SCRIPT_URL === 'YOUR_APPS_SCRIPT_URL_HERE') {
@@ -1680,6 +1742,49 @@
         }
 
         init();
+
+        // ===== 密碼保護功能 =====
+        const CORRECT_PASSWORD = '2025'; // 👈 在這裡改你的密碼
+
+        function checkPassword() {
+            const input = document.getElementById('passwordInput');
+            const errorMsg = document.getElementById('errorMsg');
+            
+            if (input.value === CORRECT_PASSWORD) {
+                // 密碼正確
+                document.getElementById('loginScreen').style.display = 'none';
+                document.getElementById('mainContent').style.display = 'block';
+                // 儲存登入狀態（24小時有效）
+                localStorage.setItem('daigou_auth', Date.now());
+                loadOrders(); // 登入後才載入資料
+            } else {
+                // 密碼錯誤
+                errorMsg.style.display = 'block';
+                input.value = '';
+                input.focus();
+            }
+        }
+
+        // 檢查是否已登入
+        function checkAuth() {
+            const authTime = localStorage.getItem('daigou_auth');
+            if (authTime) {
+                const hoursPassed = (Date.now() - parseInt(authTime)) / (1000 * 60 * 60);
+                if (hoursPassed < 24) {
+                    // 24小時內登入過，直接進入
+                    document.getElementById('loginScreen').style.display = 'none';
+                    document.getElementById('mainContent').style.display = 'block';
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // 頁面載入時檢查
+        if (!checkAuth()) {
+            // 未登入，顯示登入畫面，不載入資料
+            document.getElementById('passwordInput').focus();
+        }
     </script>
 </body>
 </html>
