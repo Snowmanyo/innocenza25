@@ -846,6 +846,11 @@
     </div>
 
     <script>
+        // ===== Google Sheets 設定 =====
+        // 請將下面的網址替換成你的 Apps Script 部署網址
+        const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwTdAJswaEGjRSEAm4ZnxIizovJJTEH5dHzltrZU3kUJcNmlIanCUkIf7h5vj-wGD4/exec';
+        
+        // ===== 商品資料 =====
         const products = [
             { id: 1, name: "編織吊飾娃", krw: 18000, price: 500, variants: ["🐻", "🦊", "🐰", "🐶"] },
             { id: 2, name: "披風毯", krw: 49000, price: 1250, variants: ["🐻", "🦊", "🐰", "🐶"] },
@@ -913,19 +918,96 @@
         function init() {
             loadOrders();
             populateProductSelect();
-            renderOrders();
-            updateStats();
-        }
-
-        function loadOrders() {
-            const saved = localStorage.getItem('daigouOrders');
-            if (saved) {
-                orders = JSON.parse(saved);
+            // 如果使用 Google Sheets，renderOrders 會在 loadOrders 完成後執行
+            // 如果使用 localStorage，這裡直接執行
+            if (APPS_SCRIPT_URL === 'YOUR_APPS_SCRIPT_URL_HERE') {
+                renderOrders();
+                updateStats();
             }
         }
 
+        function loadOrders() {
+            // 如果沒有設定 Apps Script URL，使用 localStorage
+            if (APPS_SCRIPT_URL === 'YOUR_APPS_SCRIPT_URL_HERE') {
+                console.warn('請設定 APPS_SCRIPT_URL');
+                const saved = localStorage.getItem('daigouOrders');
+                if (saved) {
+                    orders = JSON.parse(saved);
+                }
+                return;
+            }
+            
+            // 從 Google Sheets 載入 - 使用 JSONP 方式
+            showLoading();
+            
+            // 建立 script 標籤來載入資料（避免 CORS 問題）
+            const script = document.createElement('script');
+            const callbackName = 'loadOrdersCallback_' + Date.now();
+            
+            // 定義回調函數
+            window[callbackName] = function(data) {
+                try {
+                    if (data && data.orders) {
+                        orders = data.orders;
+                    } else {
+                        orders = [];
+                    }
+                    renderOrders();
+                    updateStats();
+                } catch (error) {
+                    console.error('載入錯誤:', error);
+                    alert('載入訂單失敗：' + error.message);
+                } finally {
+                    hideLoading();
+                    // 清理
+                    document.head.removeChild(script);
+                    delete window[callbackName];
+                }
+            };
+            
+            // 使用 GET 請求載入
+            script.src = APPS_SCRIPT_URL + '?action=getOrders&callback=' + callbackName;
+            script.onerror = function() {
+                hideLoading();
+                alert('無法連接到資料庫，請確認 Apps Script 網址是否正確');
+                document.head.removeChild(script);
+                delete window[callbackName];
+            };
+            
+            document.head.appendChild(script);
+        }
+
         function saveOrders() {
-            localStorage.setItem('daigouOrders', JSON.stringify(orders));
+            // 如果沒有設定 Apps Script URL，使用 localStorage
+            if (APPS_SCRIPT_URL === 'YOUR_APPS_SCRIPT_URL_HERE') {
+                localStorage.setItem('daigouOrders', JSON.stringify(orders));
+                return;
+            }
+            
+            // 儲存到 Google Sheets
+            showLoading();
+            fetch(APPS_SCRIPT_URL, {
+                method: 'POST',
+                mode: 'no-cors',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    action: 'saveOrders',
+                    orders: orders
+                })
+            })
+            .then(() => {
+                // no-cors 模式無法讀取回應，但資料已送出
+                console.log('訂單已儲存');
+            })
+            .catch(error => {
+                console.error('儲存錯誤:', error);
+                alert('儲存失敗，請稍後再試');
+            })
+            .finally(() => {
+                hideLoading();
+            });
         }
 
         function switchTab(tab) {
@@ -1426,6 +1508,42 @@
             const indicator = document.getElementById('pageIndicator');
             if (indicator) {
                 indicator.textContent = `${currentPage}/${totalPages}`;
+            }
+        }
+
+        // 載入中提示
+        function showLoading() {
+            let loadingDiv = document.getElementById('loadingOverlay');
+            if (!loadingDiv) {
+                loadingDiv = document.createElement('div');
+                loadingDiv.id = 'loadingOverlay';
+                loadingDiv.style.cssText = `
+                    position: fixed;
+                    top: 0;
+                    left: 0;
+                    width: 100%;
+                    height: 100%;
+                    background: rgba(0, 0, 0, 0.5);
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    z-index: 9999;
+                `;
+                loadingDiv.innerHTML = `
+                    <div style="background: white; padding: 30px; border-radius: 15px; text-align: center;">
+                        <div style="font-size: 18px; color: #2c3e50; margin-bottom: 10px;">載入中...</div>
+                        <div style="font-size: 14px; color: #7f8c8d;">請稍候</div>
+                    </div>
+                `;
+                document.body.appendChild(loadingDiv);
+            }
+            loadingDiv.style.display = 'flex';
+        }
+
+        function hideLoading() {
+            const loadingDiv = document.getElementById('loadingOverlay');
+            if (loadingDiv) {
+                loadingDiv.style.display = 'none';
             }
         }
 
