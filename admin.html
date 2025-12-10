@@ -547,31 +547,37 @@
 
         .summary-mini {
             display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 8px;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 6px;
             margin-top: 0;
         }
 
         .summary-mini-item {
             background: white;
-            padding: 10px 12px;
+            padding: 8px 6px;
             border-radius: 10px;
             text-align: center;
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
         }
 
         .summary-mini-label {
-            font-size: 11px;
+            font-size: 9px;
             color: #95a5a6;
-            margin-bottom: 4px;
+            margin-bottom: 3px;
             font-weight: 600;
             text-transform: uppercase;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
 
         .summary-mini-value {
-            font-size: 16px;
+            font-size: 13px;
             font-weight: 700;
             color: #2c3e50;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
 
         .order-card-body {
@@ -1559,26 +1565,45 @@
             if (editingOrderId) {
                 const orderIndex = orders.findIndex(o => o.id === editingOrderId);
                 if (orderIndex !== -1) {
+                    const oldOrder = orders[orderIndex];
+                    
+                    // 編輯訂單時，保留舊品項的順位，只給新品項分配順位
                     const itemsWithPriority = sortedItems.map(item => {
-                        const productOrders = getAllProductOrders(item.productId, item.variant, editingOrderId);
-                        const priority = productOrders.length + 1;
+                        // 檢查是否為舊品項（通過比對商品和變體）
+                        const oldItem = oldOrder.items.find(old => 
+                            old.productId === item.productId && 
+                            (old.variant || 'null') === (item.variant || 'null')
+                        );
                         
-                        return {
-                            ...item,
-                            priority: priority
-                        };
-                    });
-
-                    // 更新同商品的順位
-                    const productCounts = {};
-                    itemsWithPriority.forEach(item => {
-                        const key = `${item.productId}-${item.variant || 'null'}`;
-                        if (!productCounts[key]) {
-                            productCounts[key] = item.priority;
+                        if (oldItem) {
+                            // 舊品項：保留原順位
+                            return {
+                                ...item,
+                                priority: oldItem.priority
+                            };
                         } else {
-                            productCounts[key]++;
+                            // 新品項：計算新順位
+                            const productOrders = getAllProductOrders(item.productId, item.variant, editingOrderId);
+                            return {
+                                ...item,
+                                priority: productOrders.length + 1
+                            };
                         }
-                        item.priority = productCounts[key];
+                    });
+                    
+                    // 處理同訂單內新增的重複商品
+                    const priorityUsed = {};
+                    itemsWithPriority.forEach((item, index) => {
+                        const key = `${item.productId}-${item.variant || 'null'}`;
+                        if (!priorityUsed[key]) {
+                            priorityUsed[key] = [item.priority];
+                        } else {
+                            // 檢查這個順位是否已被使用
+                            while (priorityUsed[key].includes(item.priority)) {
+                                item.priority++;
+                            }
+                            priorityUsed[key].push(item.priority);
+                        }
                     });
 
                     orders[orderIndex] = {
@@ -1591,26 +1616,33 @@
                     };
                 }
             } else {
+                // 新增訂單
+                // 先取得全域的每個商品的起始順位
+                const startingPriorities = {};
+                sortedItems.forEach(item => {
+                    const key = `${item.productId}-${item.variant || 'null'}`;
+                    if (!startingPriorities[key]) {
+                        const productOrders = getAllProductOrders(item.productId, item.variant);
+                        startingPriorities[key] = productOrders.length + 1;
+                    }
+                });
+                
+                // 然後在同訂單內，相同商品依序遞增
+                const localCounts = {};
                 const itemsWithPriority = sortedItems.map(item => {
-                    const productOrders = getAllProductOrders(item.productId, item.variant);
-                    const priority = productOrders.length + 1;
+                    const key = `${item.productId}-${item.variant || 'null'}`;
+                    
+                    if (!localCounts[key]) {
+                        localCounts[key] = 0;
+                    }
+                    
+                    const priority = startingPriorities[key] + localCounts[key];
+                    localCounts[key]++;
                     
                     return {
                         ...item,
                         priority: priority
                     };
-                });
-
-                // 更新同商品的順位
-                const productCounts = {};
-                itemsWithPriority.forEach(item => {
-                    const key = `${item.productId}-${item.variant || 'null'}`;
-                    if (!productCounts[key]) {
-                        productCounts[key] = item.priority;
-                    } else {
-                        productCounts[key]++;
-                    }
-                    item.priority = productCounts[key];
                 });
 
                 const order = {
@@ -1786,33 +1818,30 @@
             const order = orders.find(o => o.id === orderId);
             if (!order) return;
             
-            if (confirm('確定要儲存此訂單的購買狀態嗎？')) {
-                showLoading();
-                
-                fetch(APPS_SCRIPT_URL, {
-                    method: 'POST',
-                    mode: 'no-cors',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        action: 'saveOrders',
-                        orders: orders
-                    })
+            showLoading();
+            
+            fetch(APPS_SCRIPT_URL, {
+                method: 'POST',
+                mode: 'no-cors',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    action: 'saveOrders',
+                    orders: orders
                 })
-                .then(() => {
-                    setTimeout(() => {
-                        hideLoading();
-                        alert('✅ 儲存成功！');
-                        updateStats();
-                    }, 1000);
-                })
-                .catch(error => {
-                    console.error('儲存錯誤:', error);
+            })
+            .then(() => {
+                setTimeout(() => {
                     hideLoading();
-                    alert('❌ 儲存失敗，請檢查網路連線後再試');
-                });
-            }
+                    updateStats();
+                }, 500);
+            })
+            .catch(error => {
+                console.error('儲存錯誤:', error);
+                hideLoading();
+                alert('❌ 儲存失敗，請檢查網路連線後再試');
+            });
         }
         
         // 處理已付款狀態變更（立即儲存）
@@ -1910,7 +1939,6 @@
                         </div>
                         <div class="header-right">
                             <div class="edit-icon" data-order-id="${order.id}">✏️</div>
-                            <div class="copy-icon" data-order-id="${order.id}" title="複製訂單">📋</div>
                         </div>
                     </div>
                     <div class="summary-mini">
@@ -2048,15 +2076,6 @@
                     e.stopPropagation();
                     const orderId = parseInt(this.getAttribute('data-order-id'));
                     saveOrderPurchaseStatus(orderId);
-                });
-            });
-            
-            // 綁定複製圖示事件
-            document.querySelectorAll('.copy-icon').forEach(btn => {
-                btn.addEventListener('click', function(e) {
-                    e.stopPropagation();
-                    const orderId = parseInt(this.getAttribute('data-order-id'));
-                    copyOrderToClipboard(orderId, 'all');
                 });
             });
             
