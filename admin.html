@@ -1559,110 +1559,50 @@
                 return;
             }
 
-            // 排序品項
+            // 先把品項排好「顯示順序」（不含順位數字）
             const sortedItems = sortOrderItems([...currentOrderItems]);
 
             if (editingOrderId) {
+                // 編輯既有訂單
                 const orderIndex = orders.findIndex(o => o.id === editingOrderId);
                 if (orderIndex !== -1) {
-                    const oldOrder = orders[orderIndex];
-                    
-                    // 編輯訂單時，保留舊品項的順位，只給新品項分配順位
-                    const itemsWithPriority = sortedItems.map(item => {
-                        // 檢查是否為舊品項（通過比對商品和變體）
-                        const oldItem = oldOrder.items.find(old => 
-                            old.productId === item.productId && 
-                            (old.variant || 'null') === (item.variant || 'null')
-                        );
-                        
-                        if (oldItem) {
-                            // 舊品項：保留原順位
-                            return {
-                                ...item,
-                                priority: oldItem.priority
-                            };
-                        } else {
-                            // 新品項：計算新順位
-                            const productOrders = getAllProductOrders(item.productId, item.variant, editingOrderId);
-                            return {
-                                ...item,
-                                priority: productOrders.length + 1
-                            };
-                        }
-                    });
-                    
-                    // 處理同訂單內新增的重複商品
-                    const priorityUsed = {};
-                    itemsWithPriority.forEach((item, index) => {
-                        const key = `${item.productId}-${item.variant || 'null'}`;
-                        if (!priorityUsed[key]) {
-                            priorityUsed[key] = [item.priority];
-                        } else {
-                            // 檢查這個順位是否已被使用
-                            while (priorityUsed[key].includes(item.priority)) {
-                                item.priority++;
-                            }
-                            priorityUsed[key].push(item.priority);
-                        }
-                    });
-
                     orders[orderIndex] = {
                         ...orders[orderIndex],
                         customerName: customerName,
                         customerPhone: customerPhone,
                         customerContact: customerContact,
                         paid: isPaid,
-                        items: itemsWithPriority
+                        items: sortedItems
                     };
+
+                    // 如果這張訂單是「已付款」，就幫它重新排順位
+                    recalculatePrioritiesForOrder(orders[orderIndex].id);
                 }
             } else {
                 // 新增訂單
-                // 先取得全域的每個商品的起始順位
-                const startingPriorities = {};
-                sortedItems.forEach(item => {
-                    const key = `${item.productId}-${item.variant || 'null'}`;
-                    if (!startingPriorities[key]) {
-                        const productOrders = getAllProductOrders(item.productId, item.variant);
-                        startingPriorities[key] = productOrders.length + 1;
-                    }
-                });
-                
-                // 然後在同訂單內，相同商品依序遞增
-                const localCounts = {};
-                const itemsWithPriority = sortedItems.map(item => {
-                    const key = `${item.productId}-${item.variant || 'null'}`;
-                    
-                    if (!localCounts[key]) {
-                        localCounts[key] = 0;
-                    }
-                    
-                    const priority = startingPriorities[key] + localCounts[key];
-                    localCounts[key]++;
-                    
-                    return {
-                        ...item,
-                        priority: priority
-                    };
-                });
-
-                const order = {
+                const newOrder = {
                     id: Date.now(),
                     customerName: customerName,
                     customerPhone: customerPhone,
                     customerContact: customerContact,
                     paid: isPaid,
-                    items: itemsWithPriority,
+                    items: sortedItems,
                     createdAt: new Date().toISOString()
                 };
 
-                orders.push(order);
+                orders.push(newOrder);
+
+                // 新訂單如果一開始就是「已付款」，也要排順位
+                recalculatePrioritiesForOrder(newOrder.id);
             }
 
+            // 共用流程：存檔＋更新畫面
             saveOrders();
             renderOrders();
             updateStats();
             closeModal();
         }
+
 
         function deleteCurrentOrder() {
             if (!editingOrderId) return;
@@ -1677,9 +1617,14 @@
             }
         }
 
+        // 只找「已付款」訂單裡，包含這個商品＋款式的紀錄
         function getAllProductOrders(productId, variant, excludeOrderId = null) {
             const productOrders = [];
             orders.forEach(order => {
+                // 只計算已付款訂單
+                if (!order.paid) return;
+
+                // 編輯時，避免把自己算進去
                 if (excludeOrderId && order.id === excludeOrderId) return;
                 
                 order.items.forEach(item => {
@@ -1693,6 +1638,39 @@
             });
             return productOrders;
         }
+
+        // 根據目前所有「已付款」訂單，重新幫這張訂單的品項排好順位
+        function recalculatePrioritiesForOrder(orderId) {
+            const order = orders.find(o => o.id === orderId);
+            if (!order) return;
+
+            // 沒付款就不用排順位（UI 也不會顯示）
+            if (!order.paid) {
+                return;
+            }
+
+            // key = "商品ID-款式"（款式沒有就用 'null'）
+            const startingPriorities = {};
+            const localCounts = {};
+
+            order.items.forEach(item => {
+                const key = `${item.productId}-${item.variant || 'null'}`;
+
+                // 第一次遇到這個商品＋款式時，先去看「其他已付款訂單」目前有幾筆
+                if (!startingPriorities[key]) {
+                    const existingOrders = getAllProductOrders(item.productId, item.variant, orderId);
+                    startingPriorities[key] = existingOrders.length + 1; // 下一個順位
+                    localCounts[key] = 0;
+                }
+
+                const base = startingPriorities[key];
+                const offset = localCounts[key];
+
+                item.priority = base + offset;
+                localCounts[key] = offset + 1;
+            });
+        }
+
 
         function calculateGiftCards(items) {
             const totalKrw = items
