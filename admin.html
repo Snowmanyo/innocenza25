@@ -1858,9 +1858,15 @@
         function handlePaidChange(orderId) {
             const order = orders.find(o => o.id === orderId);
             if (order) {
-                order.paid = !order.paid;
-                
-                // 立即更新 UI 並儲存
+                const wasPaid = order.paid;     // 記錄原本狀態
+                order.paid = !order.paid;       // 切換已付款 / 未付款
+
+                // ⭐ 重點：只有「第一次變成已付款」的時候，幫這張訂單算順位
+                if (!wasPaid && order.paid) {
+                    recalculatePrioritiesForOrder(orderId);
+                }
+
+                // 立即更新 UI
                 renderOrders();
                 updateStats();
                 
@@ -1889,6 +1895,7 @@
                 });
             }
         }
+
         
         // 頁面離開前不做任何動作
         window.addEventListener('beforeunload', function(e) {
