@@ -185,6 +185,33 @@
             transform: translateY(0);
         }
         
+        .save-order-btn-container {
+            margin: 15px 0 10px 0;
+        }
+        
+        .save-order-btn {
+            width: 100%;
+            padding: 12px;
+            background: linear-gradient(135deg, #3498db 0%, #2980b9 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 2px 8px rgba(52, 152, 219, 0.3);
+        }
+        
+        .save-order-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(52, 152, 219, 0.4);
+        }
+        
+        .save-order-btn:active {
+            transform: translateY(0);
+        }
+        
         .page-indicator {
             font-size: 14px;
             color: #7f8c8d;
@@ -1047,12 +1074,7 @@
             <div class="section">
                 <div class="section-title">
                     <span>訂單列表</span>
-                    <div style="display: flex; align-items: center; gap: 15px;">
-                        <button onclick="manualSave()" class="save-btn" title="從雲端重新載入資料">
-                            🔄 重新載入
-                        </button>
-                        <span class="page-indicator" id="pageIndicator">0/0</span>
-                    </div>
+                    <span class="page-indicator" id="pageIndicator">0/0</span>
                 </div>
                 <div id="ordersList" class="order-grid"></div>
             </div>
@@ -1173,7 +1195,12 @@
         // 排序訂單品項
         function sortOrderItems(items) {
             return items.sort((a, b) => {
-                // 先按產品 ID 排序
+                // 先按順位排序
+                if (a.priority !== b.priority) {
+                    return a.priority - b.priority;
+                }
+                
+                // 順位相同時按產品 ID 排序
                 if (a.productId !== b.productId) {
                     return a.productId - b.productId;
                 }
@@ -1660,34 +1687,167 @@
             if (order && order.items[itemIndex]) {
                 order.items[itemIndex].purchased = !order.items[itemIndex].purchased;
                 
-                // 立即更新 UI
-                renderOrders();
-                updateStats();
-                
-                // 立即儲存（不延遲）
-                saveOrders();
+                // 只更新當前訂單卡片，不重新渲染整個列表
+                updateSingleOrderCard(orderId);
             }
         }
         
-        // 處理已付款狀態變更
+        // 更新單一訂單卡片（不捲動頁面）
+        function updateSingleOrderCard(orderId) {
+            const order = orders.find(o => o.id === orderId);
+            if (!order) return;
+            
+            // 找到對應的卡片元素
+            const cardElement = document.querySelector(`[data-order-card-id="${orderId}"]`);
+            if (!cardElement) return;
+            
+            // 重新計算金額
+            const totalAmount = calculateTotalAmount(order.items);
+            const purchasedAmount = calculatePurchasedAmount(order.items);
+            const giftCards = calculateGiftCards(order.items);
+            const totalItems = order.items.length;
+            const purchasedCount = order.items.filter(item => item.purchased).length;
+            
+            // 更新摘要區
+            cardElement.querySelector('.summary-mini').innerHTML = `
+                <div class="summary-mini-item">
+                    <div class="summary-mini-label">訂單總額</div>
+                    <div class="summary-mini-value">$${totalAmount.toLocaleString()}</div>
+                </div>
+                <div class="summary-mini-item">
+                    <div class="summary-mini-label">已購總額</div>
+                    <div class="summary-mini-value" style="color: #27ae60;">$${purchasedAmount.toLocaleString()}</div>
+                </div>
+                <div class="summary-mini-item">
+                    <div class="summary-mini-label">小卡</div>
+                    <div class="summary-mini-value">${giftCards}</div>
+                </div>
+                <div class="summary-mini-item">
+                    <div class="summary-mini-label">品項</div>
+                    <div class="summary-mini-value">${purchasedCount}/${totalItems}</div>
+                </div>
+            `;
+            
+            // 更新底部摘要
+            const summaryDiv = cardElement.querySelector('.order-summary-new');
+            summaryDiv.innerHTML = `
+                <div class="summary-row-new">
+                    <span>已購買品項</span>
+                    <span>${purchasedCount} / ${totalItems}</span>
+                </div>
+                <div class="summary-row-new">
+                    <span>訂單總額</span>
+                    <span>NT$ ${totalAmount.toLocaleString()}</span>
+                </div>
+                <div class="summary-row-new total">
+                    <span>已購總額</span>
+                    <span style="color: #27ae60;">NT$ ${purchasedAmount.toLocaleString()}</span>
+                </div>
+                <div class="save-order-btn-container">
+                    <button class="save-order-btn" data-order-id="${orderId}">💾 儲存此訂單</button>
+                </div>
+                <div class="copy-buttons">
+                    <button class="copy-btn copy-all-btn" data-order-id="${orderId}">📋 複製全部</button>
+                    <button class="copy-btn copy-purchased-btn" data-order-id="${orderId}">✅ 複製已購</button>
+                </div>
+            `;
+            
+            // 重新綁定儲存按鈕
+            cardElement.querySelector('.save-order-btn').addEventListener('click', function() {
+                const id = parseInt(this.getAttribute('data-order-id'));
+                saveOrderPurchaseStatus(id);
+            });
+            
+            // 重新綁定複製按鈕
+            bindCopyButtons(cardElement);
+        }
+        
+        // 綁定複製按鈕（通用函數）
+        function bindCopyButtons(container) {
+            container.querySelectorAll('.copy-all-btn').forEach(btn => {
+                btn.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    const orderId = parseInt(this.getAttribute('data-order-id'));
+                    copyOrderToClipboard(orderId, 'all');
+                });
+            });
+            
+            container.querySelectorAll('.copy-purchased-btn').forEach(btn => {
+                btn.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    const orderId = parseInt(this.getAttribute('data-order-id'));
+                    copyOrderToClipboard(orderId, 'purchased');
+                });
+            });
+        }
+        
+        // 儲存單一訂單的購買狀態
+        function saveOrderPurchaseStatus(orderId) {
+            const order = orders.find(o => o.id === orderId);
+            if (!order) return;
+            
+            if (confirm('確定要儲存此訂單的購買狀態嗎？')) {
+                showLoading();
+                
+                fetch(APPS_SCRIPT_URL, {
+                    method: 'POST',
+                    mode: 'no-cors',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        action: 'saveOrders',
+                        orders: orders
+                    })
+                })
+                .then(() => {
+                    setTimeout(() => {
+                        hideLoading();
+                        alert('✅ 儲存成功！');
+                        updateStats();
+                    }, 1000);
+                })
+                .catch(error => {
+                    console.error('儲存錯誤:', error);
+                    hideLoading();
+                    alert('❌ 儲存失敗，請檢查網路連線後再試');
+                });
+            }
+        }
+        
+        // 處理已付款狀態變更（立即儲存）
         function handlePaidChange(orderId) {
             const order = orders.find(o => o.id === orderId);
             if (order) {
                 order.paid = !order.paid;
                 
-                // 立即更新 UI
+                // 立即更新 UI 並儲存
                 renderOrders();
                 updateStats();
                 
-                // 立即儲存
-                saveOrders();
-            }
-        }
-        
-        // 手動儲存到雲端按鈕（現在變成重新載入）
-        function manualSave() {
-            if (confirm('確定要重新載入雲端資料嗎？\n（未儲存的變更會遺失）')) {
-                loadOrders();
+                // 立即儲存付款狀態
+                showLoading();
+                fetch(APPS_SCRIPT_URL, {
+                    method: 'POST',
+                    mode: 'no-cors',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        action: 'saveOrders',
+                        orders: orders
+                    })
+                })
+                .then(() => {
+                    setTimeout(() => {
+                        hideLoading();
+                    }, 500);
+                })
+                .catch(error => {
+                    console.error('儲存錯誤:', error);
+                    hideLoading();
+                    alert('❌ 儲存失敗，請檢查網路連線');
+                });
             }
         }
         
@@ -1730,6 +1890,7 @@
                 const cardDiv = document.createElement('div');
                 cardDiv.className = 'order-card';
                 cardDiv.setAttribute('data-order-id', order.id);
+                cardDiv.setAttribute('data-order-card-id', order.id); // 用於快速查找
 
                 // Header
                 const headerDiv = document.createElement('div');
@@ -1776,29 +1937,35 @@
                 const bodyDiv = document.createElement('div');
                 bodyDiv.className = 'order-card-body';
 
-                // 排序品項
-                const sortedItems = sortOrderItems([...order.items]);
-
-                // 追蹤已經配對的原始索引
-                const usedIndices = new Set();
+                // 為每個品項加上原始索引，然後排序
+                const itemsWithIndex = order.items.map((item, idx) => ({
+                    ...item,
+                    originalIndex: idx
+                }));
                 
-                sortedItems.forEach((item, sortedIndex) => {
-                    // 找到原始索引（使用更精確的比對，並避免重複使用）
-                    let originalIndex = -1;
-                    for (let i = 0; i < order.items.length; i++) {
-                        if (usedIndices.has(i)) continue; // 跳過已使用的索引
-                        
-                        const orig = order.items[i];
-                        if (orig.productId === item.productId && 
-                            (orig.variant || 'null') === (item.variant || 'null') &&
-                            orig.priority === item.priority &&
-                            orig.purchased === item.purchased) {
-                            originalIndex = i;
-                            usedIndices.add(i);
-                            break;
-                        }
+                // 排序（按順位）
+                itemsWithIndex.sort((a, b) => {
+                    // 先按順位排序
+                    if (a.priority !== b.priority) {
+                        return a.priority - b.priority;
                     }
                     
+                    // 順位相同時按產品 ID 排序
+                    if (a.productId !== b.productId) {
+                        return a.productId - b.productId;
+                    }
+                    
+                    // 如果產品 ID 相同，按變體排序
+                    const product = products.find(p => p.id === a.productId);
+                    if (!product || product.variants.length === 0) return 0;
+                    
+                    const aIndex = product.variants.indexOf(a.variant);
+                    const bIndex = product.variants.indexOf(b.variant);
+                    
+                    return aIndex - bIndex;
+                });
+                
+                itemsWithIndex.forEach((item) => {
                     const itemDiv = document.createElement('div');
                     itemDiv.className = 'item-row-new';
                     
@@ -1819,7 +1986,7 @@
                             </div>
                             ` : ''}
                             <div class="checkbox-wrapper">
-                                <input type="checkbox" class="checkbox-new" ${item.purchased ? 'checked' : ''} data-order-id="${order.id}" data-item-index="${originalIndex}">
+                                <input type="checkbox" class="checkbox-new" ${item.purchased ? 'checked' : ''} data-order-id="${order.id}" data-item-index="${item.originalIndex}">
                                 <span>已購買</span>
                             </div>
                         </div>
@@ -1843,6 +2010,9 @@
                     <div class="summary-row-new total">
                         <span>已購總額</span>
                         <span style="color: #27ae60;">NT$ ${purchasedAmount.toLocaleString()}</span>
+                    </div>
+                    <div class="save-order-btn-container">
+                        <button class="save-order-btn" data-order-id="${order.id}">💾 儲存此訂單</button>
                     </div>
                     <div class="copy-buttons">
                         <button class="copy-btn copy-all-btn" data-order-id="${order.id}">📋 複製全部</button>
@@ -1869,6 +2039,15 @@
                     e.stopPropagation();
                     const orderId = parseInt(this.getAttribute('data-order-id'));
                     openModal(orderId);
+                });
+            });
+            
+            // 綁定儲存訂單按鈕事件
+            document.querySelectorAll('.save-order-btn').forEach(btn => {
+                btn.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    const orderId = parseInt(this.getAttribute('data-order-id'));
+                    saveOrderPurchaseStatus(orderId);
                 });
             });
             
@@ -2191,12 +2370,9 @@
                 document.getElementById('mainContent').style.display = 'block';
                 // 儲存登入狀態（24小時有效）
                 localStorage.setItem('daigou_auth', Date.now());
-                loadOrders(); // 登入後才載入資料
                 
-                // 延遲 2 秒後自動匯入表單訂單
-                setTimeout(() => {
-                    importFromForm();
-                }, 2000);
+                // 先靜默匯入表單（不彈提示）
+                importFromForm(true);
             } else {
                 // 密碼錯誤
                 errorMsg.style.display = 'block';
@@ -2214,6 +2390,10 @@
                     // 24小時內登入過，直接進入
                     document.getElementById('loginScreen').style.display = 'none';
                     document.getElementById('mainContent').style.display = 'block';
+                    
+                    // 自動匯入表單並載入訂單
+                    importFromForm(true);
+                    
                     return true;
                 }
             }
@@ -2228,12 +2408,12 @@
 
         // ===== Google 表單匯入功能 =====
         // ===== 一鍵同步表單訂單 =====
-        function importFromForm() {
-            if (!confirm('確定要同步 Google 表單的訂單嗎？\n\n系統會自動從綁定的試算表讀取資料。')) {
+        function importFromForm(silent = false) {
+            if (!silent && !confirm('確定要同步 Google 表單的訂單嗎？\n\n系統會自動從綁定的試算表讀取資料。')) {
                 return;
             }
             
-            showLoading();
+            if (!silent) showLoading();
             
             // 使用綁定的試算表 ID
             const script = document.createElement('script');
@@ -2242,21 +2422,28 @@
             window[callbackName] = function(data) {
                 document.body.removeChild(script);
                 delete window[callbackName];
-                hideLoading();
+                if (!silent) hideLoading();
                 
                 if (data.status === 'success') {
-                    alert(`✅ 成功同步 ${data.count} 筆訂單！`);
+                    if (!silent) {
+                        const count = data.count || 0;
+                        alert(`✅ 成功同步 ${count} 筆訂單！`);
+                    }
                     loadOrders();
                 } else {
-                    alert('❌ 同步失敗：' + (data.message || '未知錯誤'));
+                    if (!silent) {
+                        alert('❌ 同步失敗：' + (data.message || '未知錯誤'));
+                    }
                 }
             };
             
             script.onerror = function() {
                 document.body.removeChild(script);
                 delete window[callbackName];
-                hideLoading();
-                alert('❌ 連線失敗，請檢查：\n1. Apps Script 網址是否正確\n2. 網路連線是否正常');
+                if (!silent) hideLoading();
+                if (!silent) {
+                    alert('❌ 連線失敗，請檢查：\n1. Apps Script 網址是否正確\n2. 網路連線是否正常');
+                }
             };
             
             script.src = APPS_SCRIPT_URL + '?action=importFormResponses&formSheetId=' + SPREADSHEET_ID + '&callback=' + callbackName + '&_=' + Date.now();
