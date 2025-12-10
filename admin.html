@@ -914,7 +914,8 @@
     <script>
         // ===== Google Sheets 設定 =====
         // 請將下面的網址替換成你的 Apps Script 部署網址
-        const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzPvr2fCNwvp-PVJ3bEnIrRDbNX1cYUBHG-5faNYb98FmWL8X0UPK_robDZpuDHTM3PMA/exec';
+        const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyvca0IWa-gN1BX1LWGmu-CqdgfqlXKpHtG1or3Fn8VJf1a4GPDOjTPOKRzvaZIl9uptA/exec';
+        const SPREADSHEET_ID = '1oCu8IAKVaEyi6Ufh6MSfRVWgt6q8Hi-_Yvpk4vN0XW8'; // Google Sheets 試算表 ID（已自動綁定）
         
         // ===== 商品資料 =====
         const products = [
@@ -1748,7 +1749,7 @@
         init();
 
         // ===== 密碼保護功能 =====
-        const CORRECT_PASSWORD = '2025'; // 👈 在這裡改你的密碼
+        const CORRECT_PASSWORD = 'daigou2024'; // 👈 在這裡改你的密碼
 
         function checkPassword() {
             const input = document.getElementById('passwordInput');
@@ -1791,47 +1792,40 @@
         }
 
         // ===== Google 表單匯入功能 =====
+        // ===== 一鍵同步表單訂單 =====
         function importFromForm() {
-            const formSheetId = prompt(
-                '請輸入 Google 表單回覆試算表的 ID\n\n' +
-                '在試算表網址中的這一段：\n' +
-                'https://docs.google.com/spreadsheets/d/【這裡】/edit\n\n' +
-                '或是直接輸入「示範」查看說明'
-            );
-            
-            if (!formSheetId) return;
-            
-            if (formSheetId === '示範' || formSheetId === '說明') {
-                alert(
-                    '📋 如何找到試算表 ID？\n\n' +
-                    '1. 打開你的 Google 表單\n' +
-                    '2. 點「回覆」→「在試算表中查看」\n' +
-                    '3. 複製網址列中的一長串 ID\n' +
-                    '4. 例如：1aBcD2eFgH3iJkL4mNoPqRsTuVwXyZ\n\n' +
-                    '注意：需要先在 Apps Script 中設定權限！'
-                );
+            if (!confirm('確定要同步 Google 表單的訂單嗎？\n\n系統會自動從綁定的試算表讀取資料。')) {
                 return;
             }
             
             showLoading();
             
-            // 呼叫 Apps Script 匯入
-            fetch(APPS_SCRIPT_URL + '?action=importFormResponses&formSheetId=' + formSheetId)
-                .then(response => response.json())
-                .then(data => {
-                    hideLoading();
-                    if (data.status === 'success') {
-                        alert(`成功匯入 ${data.count} 筆新訂單！`);
-                        loadOrders();
-                    } else {
-                        alert('匯入失敗：' + data.message);
-                    }
-                })
-                .catch(error => {
-                    hideLoading();
-                    console.error('匯入錯誤:', error);
-                    alert('匯入失敗，請確認：\n1. 試算表 ID 正確\n2. Apps Script 有權限存取\n3. 網路連線正常');
-                });
+            // 使用綁定的試算表 ID
+            const script = document.createElement('script');
+            const callbackName = 'importFormCallback_' + Date.now();
+            
+            window[callbackName] = function(data) {
+                document.body.removeChild(script);
+                delete window[callbackName];
+                hideLoading();
+                
+                if (data.status === 'success') {
+                    alert(`✅ 成功同步 ${data.count} 筆訂單！`);
+                    loadOrders();
+                } else {
+                    alert('❌ 同步失敗：' + (data.message || '未知錯誤'));
+                }
+            };
+            
+            script.onerror = function() {
+                document.body.removeChild(script);
+                delete window[callbackName];
+                hideLoading();
+                alert('❌ 連線失敗，請檢查：\n1. Apps Script 網址是否正確\n2. 網路連線是否正常');
+            };
+            
+            script.src = APPS_SCRIPT_URL + '?action=importFormResponses&formSheetId=' + SPREADSHEET_ID + '&callback=' + callbackName + '&_=' + Date.now();
+            document.body.appendChild(script);
         }
     </script>
 </body>
