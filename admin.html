@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>周邊代購管理系統</title>
+    <title>代購團管理系統</title>
     <style>
         * {
             margin: 0;
@@ -304,6 +304,91 @@
             background: #5c6ac4;
             color: white;
             transform: scale(1.05);
+        }
+        
+        .copy-icon {
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            background: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            color: #27ae60;
+            transition: all 0.3s;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+            cursor: pointer;
+            margin-left: 8px;
+        }
+
+        .copy-icon:hover {
+            background: #27ae60;
+            color: white;
+            transform: scale(1.05);
+        }
+        
+        .copy-buttons {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 1px solid rgba(255,255,255,0.2);
+        }
+        
+        .copy-btn {
+            flex: 1;
+            padding: 10px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .copy-all-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        
+        .copy-all-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+        
+        .copy-purchased-btn {
+            background: linear-gradient(135deg, #27ae60 0%, #229954 100%);
+            color: white;
+        }
+        
+        .copy-purchased-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(39, 174, 96, 0.4);
+        }
+        
+        .copy-success {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: #27ae60;
+            color: white;
+            padding: 15px 25px;
+            border-radius: 10px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+            z-index: 10000;
+            animation: slideIn 0.3s ease;
+        }
+        
+        @keyframes slideIn {
+            from {
+                transform: translateX(400px);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
         }
 
         .customer-name {
@@ -1419,15 +1504,51 @@
                 .reduce((sum, item) => sum + item.price, 0);
         }
 
+        // 優化：延遲儲存機制（避免每次打勾都立刻存檔）
+        let saveTimeout = null;
+        let pendingChanges = false;
+        
         function handleCheckboxChange(orderId, itemIndex) {
             const order = orders.find(o => o.id === orderId);
             if (order && order.items[itemIndex]) {
                 order.items[itemIndex].purchased = !order.items[itemIndex].purchased;
-                saveOrders();
+                
+                // 立即更新 UI
                 renderOrders();
                 updateStats();
+                
+                // 標記有待儲存的變更
+                pendingChanges = true;
+                
+                // 清除之前的儲存計時器
+                if (saveTimeout) {
+                    clearTimeout(saveTimeout);
+                }
+                
+                // 設定 1 秒後自動儲存
+                saveTimeout = setTimeout(() => {
+                    if (pendingChanges) {
+                        saveOrders();
+                        pendingChanges = false;
+                    }
+                }, 1000);
             }
         }
+        
+        // 手動強制儲存（當使用者要離開或關閉時）
+        function forceSave() {
+            if (pendingChanges) {
+                saveOrders();
+                pendingChanges = false;
+            }
+        }
+        
+        // 頁面離開前強制儲存
+        window.addEventListener('beforeunload', function(e) {
+            if (pendingChanges) {
+                forceSave();
+            }
+        });
 
         function renderOrders() {
             const container = document.getElementById('ordersList');
@@ -1448,7 +1569,8 @@
             }
 
             orders.forEach((order) => {
-                const totalAmount = calculateTotalAmount(order.items);
+                const totalAmount = calculateTotalAmount(order.items); // 訂單總額
+                const purchasedAmount = calculateTotalAmount(order.items.filter(item => item.purchased)); // 已購總額
                 const giftCards = calculateGiftCards(order.items);
                 const purchasedCount = order.items.filter(item => item.purchased).length;
                 const totalItems = order.items.length;
@@ -1473,12 +1595,17 @@
                         </div>
                         <div class="header-right">
                             <div class="edit-icon" data-order-id="${order.id}">✏️</div>
+                            <div class="copy-icon" data-order-id="${order.id}" title="複製訂單">📋</div>
                         </div>
                     </div>
                     <div class="summary-mini">
                         <div class="summary-mini-item">
-                            <div class="summary-mini-label">金額</div>
+                            <div class="summary-mini-label">訂單總額</div>
                             <div class="summary-mini-value">$${totalAmount.toLocaleString()}</div>
+                        </div>
+                        <div class="summary-mini-item">
+                            <div class="summary-mini-label">已購總額</div>
+                            <div class="summary-mini-value" style="color: #27ae60;">$${purchasedAmount.toLocaleString()}</div>
                         </div>
                         <div class="summary-mini-item">
                             <div class="summary-mini-label">小卡</div>
@@ -1543,9 +1670,17 @@
                         <span>已購買品項</span>
                         <span>${purchasedCount} / ${totalItems}</span>
                     </div>
-                    <div class="summary-row-new total">
-                        <span>已購金額</span>
+                    <div class="summary-row-new">
+                        <span>訂單總額</span>
                         <span>NT$ ${totalAmount.toLocaleString()}</span>
+                    </div>
+                    <div class="summary-row-new total">
+                        <span>已購總額</span>
+                        <span style="color: #27ae60;">NT$ ${purchasedAmount.toLocaleString()}</span>
+                    </div>
+                    <div class="copy-buttons">
+                        <button class="copy-btn copy-all-btn" data-order-id="${order.id}">📋 複製全部</button>
+                        <button class="copy-btn copy-purchased-btn" data-order-id="${order.id}">✅ 複製已購</button>
                     </div>
                 `;
                 bodyDiv.appendChild(summaryDiv);
@@ -1568,6 +1703,32 @@
                     e.stopPropagation();
                     const orderId = parseInt(this.getAttribute('data-order-id'));
                     openModal(orderId);
+                });
+            });
+            
+            // 綁定複製圖示事件
+            document.querySelectorAll('.copy-icon').forEach(btn => {
+                btn.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    const orderId = parseInt(this.getAttribute('data-order-id'));
+                    copyOrderToClipboard(orderId, 'all');
+                });
+            });
+            
+            // 綁定複製按鈕事件
+            document.querySelectorAll('.copy-all-btn').forEach(btn => {
+                btn.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    const orderId = parseInt(this.getAttribute('data-order-id'));
+                    copyOrderToClipboard(orderId, 'all');
+                });
+            });
+            
+            document.querySelectorAll('.copy-purchased-btn').forEach(btn => {
+                btn.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    const orderId = parseInt(this.getAttribute('data-order-id'));
+                    copyOrderToClipboard(orderId, 'purchased');
                 });
             });
 
@@ -1726,6 +1887,95 @@
             container.innerHTML = tableHTML;
         }
 
+        // ===== 複製訂單功能 =====
+        function copyOrderToClipboard(orderId, type) {
+            const order = orders.find(o => o.id === orderId);
+            if (!order) return;
+            
+            let itemsToCopy = [];
+            if (type === 'all') {
+                itemsToCopy = order.items;
+            } else if (type === 'purchased') {
+                itemsToCopy = order.items.filter(item => item.purchased);
+            }
+            
+            if (itemsToCopy.length === 0) {
+                showCopyNotification('沒有可複製的品項', false);
+                return;
+            }
+            
+            // 計算金額
+            const totalAmount = calculateTotalAmount(itemsToCopy);
+            const totalKrw = itemsToCopy.reduce((sum, item) => sum + item.krw, 0);
+            const giftCards = Math.floor(totalKrw / 50000);
+            
+            // 整理品項（合併相同商品）
+            const itemGroups = {};
+            itemsToCopy.forEach(item => {
+                const key = `${item.productId}-${item.variant || 'null'}`;
+                if (!itemGroups[key]) {
+                    itemGroups[key] = {
+                        productName: item.productName,
+                        variant: item.variant,
+                        quantity: 0,
+                        price: item.price
+                    };
+                }
+                itemGroups[key].quantity++;
+            });
+            
+            // 生成文字
+            let text = `📦 ${order.customerName} 的訂單\n`;
+            text += `━━━━━━━━━━━━━━━━\n\n`;
+            
+            Object.values(itemGroups).forEach(group => {
+                const displayName = group.variant ? 
+                    `${group.productName} ${group.variant}` : 
+                    group.productName;
+                text += `${displayName} × ${group.quantity}   $${group.price * group.quantity}\n`;
+            });
+            
+            text += `\n━━━━━━━━━━━━━━━━\n`;
+            text += `💰 總金額：NT$ ${totalAmount.toLocaleString()}\n`;
+            if (giftCards > 0) {
+                text += `🎁 滿額卡：${giftCards} 張\n`;
+            }
+            text += `📝 品項數：${itemsToCopy.length}\n`;
+            
+            if (type === 'purchased') {
+                text += `\n✅ 已購買品項`;
+            }
+            
+            // 複製到剪貼簿
+            navigator.clipboard.writeText(text).then(() => {
+                showCopyNotification(type === 'all' ? '✅ 已複製全部品項' : '✅ 已複製已購品項', true);
+            }).catch(err => {
+                // 備用方案：使用 textarea
+                const textarea = document.createElement('textarea');
+                textarea.value = text;
+                document.body.appendChild(textarea);
+                textarea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textarea);
+                showCopyNotification(type === 'all' ? '✅ 已複製全部品項' : '✅ 已複製已購品項', true);
+            });
+        }
+        
+        function showCopyNotification(message, success) {
+            const notification = document.createElement('div');
+            notification.className = 'copy-success';
+            notification.textContent = message;
+            notification.style.background = success ? '#27ae60' : '#e74c3c';
+            document.body.appendChild(notification);
+            
+            setTimeout(() => {
+                notification.style.opacity = '0';
+                setTimeout(() => {
+                    document.body.removeChild(notification);
+                }, 300);
+            }, 2000);
+        }
+        
         function updateStats() {
             const totalOrders = orders.length;
             const totalAmount = orders.reduce((sum, order) => {
