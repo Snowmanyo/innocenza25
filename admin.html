@@ -328,6 +328,12 @@
             transform: scale(1.05);
         }
         
+        .payment-status-row {
+            padding: 12px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.2);
+            margin-bottom: 10px;
+        }
+        
         .copy-buttons {
             display: flex;
             gap: 10px;
@@ -396,6 +402,30 @@
             font-weight: 700;
             color: #2c3e50;
             margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        
+        .paid-badge {
+            display: inline-block;
+            padding: 3px 10px;
+            background: linear-gradient(135deg, #27ae60 0%, #229954 100%);
+            color: white;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+        
+        .unpaid-badge {
+            display: inline-block;
+            padding: 3px 10px;
+            background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%);
+            color: white;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
         }
 
         .customer-contact {
@@ -970,6 +1000,13 @@
                 <label>聯絡資訊 / 備註</label>
                 <textarea id="customerContact" placeholder="LINE ID、Instagram、Email 或其他備註資訊"></textarea>
             </div>
+            
+            <div class="form-group">
+                <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                    <input type="checkbox" id="orderPaid" style="width: 20px; height: 20px; cursor: pointer;">
+                    <span style="font-weight: 600; color: #27ae60;">💰 已付款</span>
+                </label>
+            </div>
 
             <div class="form-group">
                 <label>選擇商品</label>
@@ -1089,6 +1126,18 @@
                 return;
             }
             
+            // 先顯示快取資料（如果有的話）
+            const cached = localStorage.getItem('daigouOrdersCache');
+            if (cached) {
+                try {
+                    orders = JSON.parse(cached);
+                    renderOrders();
+                    updateStats();
+                } catch (e) {
+                    console.error('快取載入失敗:', e);
+                }
+            }
+            
             // 從 Google Sheets 載入 - 使用 JSONP 方式
             showLoading();
             
@@ -1096,26 +1145,41 @@
             const script = document.createElement('script');
             const callbackName = 'loadOrdersCallback_' + Date.now();
             
-            // 設定超時處理
+            // 設定超時處理（縮短到 10 秒）
             const timeout = setTimeout(function() {
                 hideLoading();
                 console.error('載入超時');
-                alert('載入逾時，請檢查網路連線或 Apps Script 網址');
+                if (!cached) {
+                    alert('載入逾時，請檢查網路連線');
+                }
                 document.head.removeChild(script);
                 delete window[callbackName];
-            }, 15000); // 15秒超時
+            }, 10000); // 10秒超時
             
             // 定義回調函數
             window[callbackName] = function(data) {
                 clearTimeout(timeout);
                 try {
                     console.log('收到資料:', data);
-                    if (data && data.status === 'success' && data.orders) {
+                    if (data && data.orders) {
                         orders = data.orders;
+                        
+                        // 確保每個訂單都有 paid 屬性
+                        orders.forEach(order => {
+                            if (order.paid === undefined) {
+                                order.paid = false;
+                            }
+                        });
+                        
+                        // 儲存到快取
+                        localStorage.setItem('daigouOrdersCache', JSON.stringify(orders));
+                        
                         console.log('載入了', orders.length, '筆訂單');
                     } else if (data && data.status === 'error') {
                         console.error('伺服器錯誤:', data.message);
-                        alert('載入失敗：' + data.message);
+                        if (!cached) {
+                            alert('載入失敗：' + data.message);
+                        }
                         orders = [];
                     } else {
                         orders = [];
@@ -1124,7 +1188,9 @@
                     updateStats();
                 } catch (error) {
                     console.error('處理資料錯誤:', error);
-                    alert('處理資料時發生錯誤：' + error.message);
+                    if (!cached) {
+                        alert('處理資料時發生錯誤：' + error.message);
+                    }
                 } finally {
                     hideLoading();
                     // 清理
@@ -1251,6 +1317,7 @@
                     document.getElementById('customerName').value = order.customerName;
                     document.getElementById('customerPhone').value = order.customerPhone || '';
                     document.getElementById('customerContact').value = order.customerContact || '';
+                    document.getElementById('orderPaid').checked = order.paid || false;
                     currentOrderItems = JSON.parse(JSON.stringify(order.items));
                 }
             } else {
@@ -1260,6 +1327,7 @@
                 document.getElementById('customerName').value = '';
                 document.getElementById('customerPhone').value = '';
                 document.getElementById('customerContact').value = '';
+                document.getElementById('orderPaid').checked = false;
             }
             
             document.getElementById('productSelect').value = '';
@@ -1373,6 +1441,7 @@
             const customerName = document.getElementById('customerName').value.trim();
             const customerPhone = document.getElementById('customerPhone').value.trim();
             const customerContact = document.getElementById('customerContact').value.trim();
+            const isPaid = document.getElementById('orderPaid').checked;
 
             if (!customerName) {
                 alert('請輸入客人姓名');
@@ -1417,6 +1486,7 @@
                         customerName: customerName,
                         customerPhone: customerPhone,
                         customerContact: customerContact,
+                        paid: isPaid,
                         items: itemsWithPriority
                     };
                 }
@@ -1448,6 +1518,7 @@
                     customerName: customerName,
                     customerPhone: customerPhone,
                     customerContact: customerContact,
+                    paid: isPaid,
                     items: itemsWithPriority,
                     createdAt: new Date().toISOString()
                 };
@@ -1535,6 +1606,34 @@
             }
         }
         
+        // 處理已付款狀態變更
+        function handlePaidChange(orderId) {
+            const order = orders.find(o => o.id === orderId);
+            if (order) {
+                order.paid = !order.paid;
+                
+                // 立即更新 UI
+                renderOrders();
+                updateStats();
+                
+                // 標記有待儲存的變更
+                pendingChanges = true;
+                
+                // 清除之前的儲存計時器
+                if (saveTimeout) {
+                    clearTimeout(saveTimeout);
+                }
+                
+                // 設定 1 秒後自動儲存
+                saveTimeout = setTimeout(() => {
+                    if (pendingChanges) {
+                        saveOrders();
+                        pendingChanges = false;
+                    }
+                }, 1000);
+            }
+        }
+        
         // 手動強制儲存（當使用者要離開或關閉時）
         function forceSave() {
             if (pendingChanges) {
@@ -1569,11 +1668,12 @@
             }
 
             orders.forEach((order) => {
-                const totalAmount = calculateTotalAmount(order.items); // 訂單總額
-                const purchasedAmount = calculateTotalAmount(order.items.filter(item => item.purchased)); // 已購總額
+                const totalAmount = calculateTotalAmount(order.items); // 訂單總額（全部品項）
+                const purchasedAmount = calculateTotalAmount(order.items.filter(item => item.purchased)); // 已購總額（只有打勾的）
                 const giftCards = calculateGiftCards(order.items);
                 const purchasedCount = order.items.filter(item => item.purchased).length;
                 const totalItems = order.items.length;
+                const isPaid = order.paid || false; // 是否已付款
                 
                 let contactInfo = [];
                 if (order.customerPhone) contactInfo.push(order.customerPhone);
@@ -1590,7 +1690,10 @@
                 headerDiv.innerHTML = `
                     <div class="header-top">
                         <div class="header-left">
-                            <div class="customer-name">${order.customerName}</div>
+                            <div class="customer-name">
+                                ${order.customerName}
+                                ${isPaid ? '<span class="paid-badge">✓ 已付款</span>' : '<span class="unpaid-badge">⏳ 未付款</span>'}
+                            </div>
                             ${contactDisplay ? `<div class="customer-contact">${contactDisplay}</div>` : ''}
                         </div>
                         <div class="header-right">
@@ -1666,6 +1769,12 @@
                 const summaryDiv = document.createElement('div');
                 summaryDiv.className = 'order-summary-new';
                 summaryDiv.innerHTML = `
+                    <div class="payment-status-row">
+                        <div class="checkbox-wrapper" style="justify-content: flex-start;">
+                            <input type="checkbox" class="checkbox-paid" ${isPaid ? 'checked' : ''} data-order-id="${order.id}">
+                            <span style="font-weight: 600; color: ${isPaid ? '#27ae60' : '#f39c12'};">💰 已付款</span>
+                        </div>
+                    </div>
                     <div class="summary-row-new">
                         <span>已購買品項</span>
                         <span>${purchasedCount} / ${totalItems}</span>
@@ -1738,6 +1847,14 @@
                     const orderId = parseInt(this.getAttribute('data-order-id'));
                     const itemIndex = parseInt(this.getAttribute('data-item-index'));
                     handleCheckboxChange(orderId, itemIndex);
+                });
+            });
+            
+            // 綁定已付款勾選框事件
+            document.querySelectorAll('.checkbox-paid').forEach(checkbox => {
+                checkbox.addEventListener('change', function() {
+                    const orderId = parseInt(this.getAttribute('data-order-id'));
+                    handlePaidChange(orderId);
                 });
             });
 
