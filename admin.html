@@ -1638,6 +1638,38 @@
             });
             return productOrders;
         }
+        // 重新計算所有已付款訂單的順位（以「每一包」為單位）
+        function recalculateAllPriorities() {
+            const counters = {}; // key = productId-variant, value = 下一個順位數字
+
+            // 只看已付款的訂單，依時間排序，先下單先排前面
+            const paidOrders = orders
+                .filter(o => o.paid)
+                .sort((a, b) => {
+                    if (a.createdAt && b.createdAt) {
+                        return new Date(a.createdAt) - new Date(b.createdAt);
+                    }
+                    if (a.createdAt) return -1;
+                    if (b.createdAt) return 1;
+                    // 沒 createdAt 就用 id 當保險
+                    return (a.id || 0) - (b.id || 0);
+                });
+
+            // 把所有已付款訂單攤平，一個 item 就是一個順位
+            paidOrders.forEach(order => {
+                order.items.forEach(item => {
+                    const key = `${item.productId}-${item.variant || 'null'}`;
+                    if (!counters[key]) {
+                        counters[key] = 1;
+                    }
+
+                    item.priority = counters[key]; // 這一包的順位
+                    counters[key]++;               // 下一包往後加一
+                });
+            });
+
+            // 未付款訂單就不動它，畫面本來就不顯示順位（render 的 template 有判斷 isPaid）
+        }
 
         // 根據目前所有「已付款」訂單，重新幫這張訂單的品項排好順位
         function recalculatePrioritiesForOrder(orderId) {
