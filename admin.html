@@ -1859,18 +1859,25 @@
             const order = orders.find(o => o.id === orderId);
             if (!order) return;
 
-            // 1) 切換已付款狀態
+            const wasPaid = order.paid;
             order.paid = !order.paid;
 
-            // 2) 只要有人從「已付款 ⇄ 未付款」，就重算所有已付款訂單的順位
-            //    → 會把同品項的順位壓成 1、2、3…，中間不會有洞
+            // ⭐ 若是從未付款 → 已付款，先清掉舊順位
+            //   這樣才能重新按目前的已付款隊伍來排
+            if (!wasPaid && order.paid) {
+                order.items.forEach(item => {
+                    delete item.priority;  // 🔥 清除舊順位
+                });
+            }
+
+            // ⭐ 不論付款還是取消，都必須重新排全部順位
             recalculateAllPriorities();
 
-            // 3) 更新畫面
+            // 更新UI
             renderOrders();
             updateStats();
 
-            // 4) 儲存到試算表
+            // 儲存回 Google Sheet
             showLoading();
             fetch(APPS_SCRIPT_URL, {
                 method: 'POST',
@@ -1894,6 +1901,7 @@
                 alert('❌ 儲存失敗，請檢查網路連線');
             });
         }
+
 
 
         
