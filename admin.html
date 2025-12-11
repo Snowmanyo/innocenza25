@@ -1626,6 +1626,44 @@
         
         }
 
+                // 刪除目前正在編輯的訂單
+                function deleteCurrentOrder() {
+            if (editingOrderId == null) {
+                closeModal();
+                return;
+            }
+
+            const orderIndex = orders.findIndex(o => o.id === editingOrderId);
+            if (orderIndex === -1) {
+                closeModal();
+                return;
+            }
+
+            const order = orders[orderIndex];
+            const name = order.customerName || '';
+
+            // 二次確認，避免誤刪
+            const ok = confirm(`確定要刪除「${name}」這一筆訂單嗎？\n刪除後將無法復原。`);
+            if (!ok) return;
+
+            // 從陣列中移除這筆訂單
+            orders.splice(orderIndex, 1);
+
+            // 刪掉之後，所有已付款訂單的順位要重新排一次
+            recalculateAllPriorities();
+
+            // 存檔＋重畫畫面
+            saveOrders();
+            renderOrders();
+            updateStats();
+
+            // 關掉彈窗 & 清掉狀態
+            closeModal();
+            editingOrderId = null;
+        }
+
+
+
         // 只找「已付款」訂單裡，包含這個商品＋款式的紀錄
         function getAllProductOrders(productId, variant, excludeOrderId = null) {
             const productOrders = [];
