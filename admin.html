@@ -1198,44 +1198,41 @@
             return `${productNumber}. ${productName}`;
         }
 
-        // 排序訂單品項
+        // 排序訂單品項：依「商品編號」排序 1、1-1、1-2、2、2-1、3...
         function sortOrderItems(items) {
             return items.sort((a, b) => {
-                // 先按順位排序
-                if (a.priority !== b.priority) {
-                    return a.priority - b.priority;
+                const numA = getProductNumber(a.productId, a.variant); // 例如 "1" 或 "1-2"
+                const numB = getProductNumber(b.productId, b.variant);
+
+                const [aMainStr, aSubStr] = numA.split('-');
+                const [bMainStr, bSubStr] = numB.split('-');
+
+                const aMain = parseInt(aMainStr, 10);
+                const bMain = parseInt(bMainStr, 10);
+
+                // 先比前半段：1,2,3,4...
+                if (aMain !== bMain) {
+                    return aMain - bMain;
                 }
-                
-                // 順位相同時按產品 ID 排序
-                if (a.productId !== b.productId) {
-                    return a.productId - b.productId;
-                }
-                
-                // 如果產品 ID 相同，按變體排序
-                const product = products.find(p => p.id === a.productId);
-                if (!product || product.variants.length === 0) return 0;
-                
-                const aIndex = product.variants.indexOf(a.variant);
-                const bIndex = product.variants.indexOf(b.variant);
-                
-                return aIndex - bIndex;
+
+                const aHasSub = !!aSubStr;
+                const bHasSub = !!bSubStr;
+
+                // 沒有 - 的排在前面：1 -> 1-1 -> 1-2
+                if (!aHasSub && bHasSub) return -1;
+                if (aHasSub && !bHasSub) return 1;
+
+                // 兩邊都沒有子編號
+                if (!aHasSub && !bHasSub) return 0;
+
+                // 兩邊都有子編號時，比後面的數字：1-1, 1-2, 1-3...
+                const aSub = parseInt(aSubStr, 10);
+                const bSub = parseInt(bSubStr, 10);
+
+                return aSub - bSub;
             });
         }
 
-        let orders = [];
-        let currentOrderItems = [];
-        let editingOrderId = null;
-
-        function init() {
-            populateProductSelect();
-            // loadOrders(); // 移到登入後才執行
-            // 如果使用 Google Sheets，renderOrders 會在 loadOrders 完成後執行
-            // 如果使用 localStorage，這裡直接執行
-            if (APPS_SCRIPT_URL === 'YOUR_APPS_SCRIPT_URL_HERE') {
-                renderOrders();
-                updateStats();
-            }
-        }
 
         function loadOrders() {
             // 如果沒有設定 Apps Script URL，使用 localStorage
@@ -1566,55 +1563,55 @@
                 // 編輯既有訂單
                 const orderIndex = orders.findIndex(o => o.id === editingOrderId);
                 if (orderIndex !== -1) {
+                    const oldOrder = orders[orderIndex];
+                    const previouslyPaid = !!oldOrder.paid;
+                    let paidAt = oldOrder.paidAt || null;
+
+                    // 原本沒付 → 這次改成已付款：視為「重新加入隊伍」，給一個新的付款時間
+                    if (!previouslyPaid && isPaid) {
+                        paidAt = new Date().toISOString();
+                    }
+                    // 原本已付 → 這次改成未付款：離開隊伍，清掉付款時間
+                    else if (previouslyPaid && !isPaid) {
+                        paidAt = null;
+                    }
+
                     orders[orderIndex] = {
-                        ...orders[orderIndex],
+                        ...oldOrder,
                         customerName: customerName,
                         customerPhone: customerPhone,
                         customerContact: customerContact,
                         paid: isPaid,
+                        paidAt: paidAt,
                         items: sortedItems
                     };
-
-                    // 如果這張訂單是「已付款」，就幫它重新排順位
-                    recalculatePrioritiesForOrder(orders[orderIndex].id);
                 }
             } else {
                 // 新增訂單
+                const now = new Date().toISOString();
                 const newOrder = {
                     id: Date.now(),
                     customerName: customerName,
                     customerPhone: customerPhone,
                     customerContact: customerContact,
                     paid: isPaid,
+                    paidAt: isPaid ? now : null,
                     items: sortedItems,
-                    createdAt: new Date().toISOString()
+                    createdAt: now
                 };
 
                 orders.push(newOrder);
-
-                // 新訂單如果一開始就是「已付款」，也要排順位
-                recalculatePrioritiesForOrder(newOrder.id);
             }
+
+            // 只要有變動，就重新幫所有「已付款」訂單排一次順位
+            recalculateAllPriorities();
 
             // 共用流程：存檔＋更新畫面
             saveOrders();
             renderOrders();
             updateStats();
             closeModal();
-        }
-
-
-        function deleteCurrentOrder() {
-            if (!editingOrderId) return;
-            
-            if (confirm('確定要刪除此訂單嗎？')) {
-                orders = orders.filter(o => o.id !== editingOrderId);
-                saveOrders();
-                renderOrders();
-                updateStats();
-                renderOverview();
-                closeModal();
-            }
+        
         }
 
         // 只找「已付款」訂單裡，包含這個商品＋款式的紀錄
@@ -1638,22 +1635,26 @@
             });
             return productOrders;
         }
+       
         // 重新計算所有已付款訂單的順位（以「每一包」為單位）
         function recalculateAllPriorities() {
             const counters = {}; // key = productId-variant, value = 下一個順位數字
 
-            // 只看已付款的訂單，依時間排序，先下單先排前面
+            // 定義一個安全的時間：先看 paidAt，其次看 createdAt，再不然用 id 當 fallback
+            function getOrderPriorityTime(order) {
+                if (order.paidAt) {
+                    return new Date(order.paidAt).getTime();
+                }
+                if (order.createdAt) {
+                    return new Date(order.createdAt).getTime();
+                }
+                return order.id || 0;
+            }
+
+            // 只看已付款的訂單，依「付款時間」排序，先付錢的先排前面
             const paidOrders = orders
                 .filter(o => o.paid)
-                .sort((a, b) => {
-                    if (a.createdAt && b.createdAt) {
-                        return new Date(a.createdAt) - new Date(b.createdAt);
-                    }
-                    if (a.createdAt) return -1;
-                    if (b.createdAt) return 1;
-                    // 沒 createdAt 就用 id 當保險
-                    return (a.id || 0) - (b.id || 0);
-                });
+                .sort((a, b) => getOrderPriorityTime(a) - getOrderPriorityTime(b));
 
             // 把所有已付款訂單攤平，一個 item 就是一個順位
             paidOrders.forEach(order => {
@@ -1668,8 +1669,9 @@
                 });
             });
 
-            // 未付款訂單就不動它，畫面本來就不顯示順位（render 的 template 有判斷 isPaid）
+            // 未付款訂單就不動它，畫面本來就不顯示順位
         }
+
 
         // 根據目前所有「已付款」訂單，重新幫這張訂單的品項排好順位
         function recalculatePrioritiesForOrder(orderId) {
@@ -1859,25 +1861,26 @@
             const order = orders.find(o => o.id === orderId);
             if (!order) return;
 
-            const wasPaid = order.paid;
-            order.paid = !order.paid;
+            const originalPaid = !!order.paid;
+            const newPaid = !originalPaid;
 
-            // ⭐ 若是從未付款 → 已付款，先清掉舊順位
-            //   這樣才能重新按目前的已付款隊伍來排
-            if (!wasPaid && order.paid) {
-                order.items.forEach(item => {
-                    delete item.priority;  // 🔥 清除舊順位
-                });
+            order.paid = newPaid;
+
+            if (newPaid) {
+                // 勾成「已付款」＝重新加入隊伍，記錄這次付款時間
+                order.paidAt = new Date().toISOString();
+            } else {
+                // 改回「未付款」＝離開隊伍，清掉付款時間
+                order.paidAt = null;
             }
 
-            // ⭐ 不論付款還是取消，都必須重新排全部順位
+            // 依照付款時間重新排一次所有順位
             recalculateAllPriorities();
 
-            // 更新UI
+            // 更新畫面 + 存檔（沿用你原本的存檔方式）
             renderOrders();
             updateStats();
 
-            // 儲存回 Google Sheet
             showLoading();
             fetch(APPS_SCRIPT_URL, {
                 method: 'POST',
@@ -1901,6 +1904,7 @@
                 alert('❌ 儲存失敗，請檢查網路連線');
             });
         }
+
 
 
 
