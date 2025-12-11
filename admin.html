@@ -1857,44 +1857,44 @@
         // 處理已付款狀態變更（立即儲存）
         function handlePaidChange(orderId) {
             const order = orders.find(o => o.id === orderId);
-            if (order) {
-                const wasPaid = order.paid;     // 記錄原本狀態
-                order.paid = !order.paid;       // 切換已付款 / 未付款
+            if (!order) return;
 
-                // ⭐ 重點：只有「第一次變成已付款」的時候，幫這張訂單算順位
-                if (!wasPaid && order.paid) {
-                    recalculatePrioritiesForOrder(orderId);
-                }
+            // 1) 切換已付款狀態
+            order.paid = !order.paid;
 
-                // 立即更新 UI
-                renderOrders();
-                updateStats();
-                
-                // 立即儲存付款狀態
-                showLoading();
-                fetch(APPS_SCRIPT_URL, {
-                    method: 'POST',
-                    mode: 'no-cors',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        action: 'saveOrders',
-                        orders: orders
-                    })
+            // 2) 只要有人從「已付款 ⇄ 未付款」，就重算所有已付款訂單的順位
+            //    → 會把同品項的順位壓成 1、2、3…，中間不會有洞
+            recalculateAllPriorities();
+
+            // 3) 更新畫面
+            renderOrders();
+            updateStats();
+
+            // 4) 儲存到試算表
+            showLoading();
+            fetch(APPS_SCRIPT_URL, {
+                method: 'POST',
+                mode: 'no-cors',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    action: 'saveOrders',
+                    orders: orders
                 })
-                .then(() => {
-                    setTimeout(() => {
-                        hideLoading();
-                    }, 500);
-                })
-                .catch(error => {
-                    console.error('儲存錯誤:', error);
+            })
+            .then(() => {
+                setTimeout(() => {
                     hideLoading();
-                    alert('❌ 儲存失敗，請檢查網路連線');
-                });
-            }
+                }, 500);
+            })
+            .catch(error => {
+                console.error('儲存錯誤:', error);
+                hideLoading();
+                alert('❌ 儲存失敗，請檢查網路連線');
+            });
         }
+
 
         
         // 頁面離開前不做任何動作
