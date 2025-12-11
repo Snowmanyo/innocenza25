@@ -1174,6 +1174,17 @@
             { id: 14, name: "雪花球磁鐵", krw: 28000, price: 750, variants: [] }
         ];
 
+        // ===== 全域狀態 & 初始化 =====
+        let orders = [];
+        let currentOrderItems = [];
+        let editingOrderId = null;
+
+        // 頁面初始化：目前只需要把商品下拉選單準備好
+        function init() {
+            populateProductSelect();
+        }
+
+
         // 獲取商品編號（含變體）
         function getProductNumber(productId, variant) {
             const product = products.find(p => p.id === productId);
@@ -1577,7 +1588,7 @@
                     }
 
                     orders[orderIndex] = {
-                        ...oldOrder,
+                        ...oldOrder,              // ✅ 修正：用 ...oldOrder
                         customerName: customerName,
                         customerPhone: customerPhone,
                         customerContact: customerContact,
@@ -1585,6 +1596,7 @@
                         paidAt: paidAt,
                         items: sortedItems
                     };
+
                 }
             } else {
                 // 新增訂單
