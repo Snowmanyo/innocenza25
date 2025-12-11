@@ -2007,36 +2007,15 @@
                 bodyDiv.className = 'order-card-body';
 
                 // 為每個品項加上原始索引，然後排序
-                const itemsWithIndex = order.items.map((item, idx) => ({
-                    ...item,
-                    originalIndex: idx
-                }));
-                
-                // 排序（按順位）
-                itemsWithIndex.sort((a, b) => {
-                    // 先按順位排序
-                    if (a.priority !== b.priority) {
-                        return a.priority - b.priority;
-                    }
-                    
-                    // 順位相同時按產品 ID 排序
-                    if (a.productId !== b.productId) {
-                        return a.productId - b.productId;
-                    }
-                    
-                    // 如果產品 ID 相同，按變體排序
-                    const product = products.find(p => p.id === a.productId);
-                    if (!product || product.variants.length === 0) return 0;
-                    
-                    const aIndex = product.variants.indexOf(a.variant);
-                    const bIndex = product.variants.indexOf(b.variant);
-                    
-                    return aIndex - bIndex;
-                });
-                
-                itemsWithIndex.forEach((item) => {
+                // 依「商品編號」排序後顯示（1、1-1、1-2、2、2-1、3...）
+                const sortedItems = sortOrderItems(order.items.slice());
+
+                sortedItems.forEach((item) => {
                     const itemDiv = document.createElement('div');
                     itemDiv.className = 'item-row-new';
+                    
+                    // 找回在原本 order.items 裡的索引，給「已購買」checkbox 用
+                    const originalIndex = order.items.indexOf(item);
                     
                     const displayName = getProductDisplayName(item.productId, item.productName, item.variant);
                     
@@ -2055,7 +2034,7 @@
                             </div>
                             ` : ''}
                             <div class="checkbox-wrapper">
-                                <input type="checkbox" class="checkbox-new" ${item.purchased ? 'checked' : ''} data-order-id="${order.id}" data-item-index="${item.originalIndex}">
+                                <input type="checkbox" class="checkbox-new" ${item.purchased ? 'checked' : ''} data-order-id="${order.id}" data-item-index="${originalIndex}">
                                 <span>已購買</span>
                             </div>
                         </div>
@@ -2063,6 +2042,7 @@
                     
                     bodyDiv.appendChild(itemDiv);
                 });
+
 
                 // Summary
                 const summaryDiv = document.createElement('div');
